@@ -146,7 +146,7 @@
                     </main>
                     ${!isPreview ? `
                         <footer class="mt-8 text-xs text-gray-500 z-10">
-                            Made with ❤️ on Kardz
+                            Made with ❤️ by Kabir Gagneja Invents
                         </footer>
                     ` : ''}
                 </div>
@@ -728,6 +728,10 @@
                     state.user = user;
                     const profileRef = ref(db, 'profiles/' + user.uid);
                     
+                    // Check if user was on the landing page before auth state changed.
+                    // This helps differentiate a fresh login from a page refresh.
+                    const wasOnLandingPage = (window.location.hash === '#/' || window.location.hash === '');
+                    
                     // Use get() for a one-time fetch to robustly initialize the state
                     const initialSnapshot = await get(profileRef);
 
@@ -738,8 +742,13 @@
                         state.profile = await createProfileForNewUser(user);
                     }
                     
-                    // Now that the state is guaranteed to be populated, call the router
-                    router();
+                    // If the user just logged in from the landing page, redirect them to the dashboard.
+                    // Otherwise (e.g., on page refresh), let the router handle the current URL.
+                    if (wasOnLandingPage) {
+                        window.location.hash = '#/dashboard';
+                    } else {
+                        router();
+                    }
 
                     // After initial setup, attach the persistent listener for live updates
                     state.profileListener = onValue(profileRef, (snapshot) => {
