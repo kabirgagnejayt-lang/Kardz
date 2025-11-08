@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -552,7 +551,7 @@
                 feedbackEl.textContent = '';
                 saveButton.innerHTML = 'Save Changes';
                 saveButton.disabled = false;
-                if(usernameChanged) window.location.hash = '/dashboard'; // Re-render dashboard to update URL
+                if(usernameChanged) window.location.hash = '#/dashboard'; // Re-render dashboard to update URL
             }, 2000);
         };
 
@@ -579,7 +578,7 @@
             }
             if (button.id === 'logout-button') {
                 await signOut(auth);
-                window.location.hash = '/';
+                window.location.hash = '#/';
             }
             if (button.closest('#dashboard-tabs')) {
                 updateDashboardTab(button.dataset.tab);
@@ -621,7 +620,7 @@
                             await remove(ref(db, `profiles/${user.uid}`));
                             await remove(ref(db, `usernames/${username}`));
                             await deleteUser(user);
-                            window.location.hash = '/';
+                            window.location.hash = '#/';
                             alert('Account deleted successfully.');
                         } catch (error) {
                             console.error("Failed to delete account:", error);
@@ -670,12 +669,12 @@
                     renderDashboard();
                 } else {
                     // This case should be rare with the new flow, but as a fallback:
-                    window.location.hash = '/'; 
+                    window.location.hash = '#/'; 
                 }
             } else {
                 if (state.user) {
                     // User is logged in but not on a specific page, redirect to dashboard.
-                    window.location.hash = '/dashboard';
+                    window.location.hash = '#/dashboard';
                 } else {
                     renderLandingPage();
                 }
