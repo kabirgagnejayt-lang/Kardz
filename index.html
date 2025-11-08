@@ -47,6 +47,10 @@
         opacity: 0;
         transition: opacity 0.3s ease-in-out;
       }
+      .spinner {
+        border-color: rgba(255, 255, 255, 0.2);
+        border-top-color: white;
+      }
     </style>
 </head>
 <body class="bg-gray-900 text-white font-inter">
@@ -63,8 +67,8 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
-        import { getDatabase, ref, set, get, update, onValue } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, deleteUser } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+        import { getDatabase, ref, set, get, update, onValue, remove } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-database.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -122,7 +126,7 @@
             const linksHtml = links
                 .sort((a, b) => a.order - b.order)
                 .map(link => `
-                    <a href="${link.url}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center w-full p-4 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 ${theme.styles.button} ${theme.styles.buttonText} ${theme.styles.buttonHover} shadow-lg ${theme.styles.shadow}">
+                    <a href="${link.url}" target="_blank" rel="noopener noreferrer" data-action="track-click" data-link-id="${link.id}" class="flex items-center justify-center w-full p-4 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 ${theme.styles.button} ${theme.styles.buttonText} ${theme.styles.buttonHover} shadow-lg ${theme.styles.shadow}">
                         <i data-lucide="${getIconForUrl(link.url)}" class="mr-3"></i>
                         ${link.title}
                     </a>
@@ -156,12 +160,12 @@
             const publicProfileUrl = `${window.location.origin}${window.location.pathname}#/@${state.profile.username}`;
             const photoURL = state.user.photoURL || `https://avatar.vercel.sh/${state.user.email}.svg`;
 
-
             const getTabContent = () => {
                 switch (state.activeDashboardTab) {
                     case 'links': return renderLinksEditor();
                     case 'appearance': return renderAppearanceEditor();
                     case 'analytics': return renderAnalytics();
+                    case 'settings': return renderSettingsEditor();
                     default: return '';
                 }
             };
@@ -181,9 +185,9 @@
                            <button data-tab="links" class="flex items-center gap-3 w-full px-4 py-3 rounded-lg transition-colors duration-200 ${state.activeDashboardTab === 'links' ? 'bg-indigo-500 text-white' : 'text-gray-300 hover:bg-white/10'}"><i data-lucide="link"></i><span class="font-medium">Links</span></button>
                            <button data-tab="appearance" class="flex items-center gap-3 w-full px-4 py-3 rounded-lg transition-colors duration-200 ${state.activeDashboardTab === 'appearance' ? 'bg-indigo-500 text-white' : 'text-gray-300 hover:bg-white/10'}"><i data-lucide="palette"></i><span class="font-medium">Appearance</span></button>
                            <button data-tab="analytics" class="flex items-center gap-3 w-full px-4 py-3 rounded-lg transition-colors duration-200 ${state.activeDashboardTab === 'analytics' ? 'bg-indigo-500 text-white' : 'text-gray-300 hover:bg-white/10'}"><i data-lucide="bar-chart-2"></i><span class="font-medium">Analytics</span></button>
+                           <button data-tab="settings" class="flex items-center gap-3 w-full px-4 py-3 rounded-lg transition-colors duration-200 ${state.activeDashboardTab === 'settings' ? 'bg-indigo-500 text-white' : 'text-gray-300 hover:bg-white/10'}"><i data-lucide="settings"></i><span class="font-medium">Settings</span></button>
                         </nav>
-                        <div class="mt-auto pt-4 border-t border-white/10 space-y-2">
-                             <button class="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-300 hover:bg-white/10"><i data-lucide="settings"></i><span class="font-medium">Settings</span></button>
+                        <div class="mt-auto pt-4 border-t border-white/10">
                              <button id="logout-button" class="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-300 hover:bg-red-500/20 hover:text-red-400"><i data-lucide="log-out"></i><span class="font-medium">Log Out</span></button>
                         </div>
                     </aside>
@@ -273,31 +277,34 @@
         
         const renderAnalytics = () => {
             const links = state.profile.links ? Object.values(state.profile.links) : [];
-            const MOCK_ANALYTICS = { views: 12345, linkClicks: {} };
-            links.forEach(l => MOCK_ANALYTICS.linkClicks[l.id] = Math.floor(Math.random() * 2000));
-            const totalClicks = Object.values(MOCK_ANALYTICS.linkClicks).reduce((sum, clicks) => sum + clicks, 0);
+            const views = state.profile.views || 0;
+            
             const linkClickData = links.map(link => ({
                name: link.title,
-               clicks: MOCK_ANALYTICS.linkClicks[link.id] || 0,
+               clicks: link.clicks || 0,
             }));
+            
+            const totalClicks = linkClickData.reduce((sum, link) => sum + link.clicks, 0);
             const maxClicks = Math.max(...linkClickData.map(d => d.clicks), 1);
 
-            const barsHtml = linkClickData.map(link => `
-               <div class="flex items-center gap-4 text-sm">
-                   <div class="w-32 truncate text-gray-300">${link.name}</div>
-                   <div class="flex-1 bg-white/10 rounded-full h-4">
-                       <div class="bg-indigo-500 h-4 rounded-full" style="width: ${(link.clicks / maxClicks) * 100}%"></div>
+            const barsHtml = linkClickData
+                .sort((a, b) => b.clicks - a.clicks)
+                .map(link => `
+                   <div class="flex items-center gap-4 text-sm">
+                       <div class="w-32 truncate text-gray-300">${link.name}</div>
+                       <div class="flex-1 bg-white/10 rounded-full h-4">
+                           <div class="bg-indigo-500 h-4 rounded-full" style="width: ${(link.clicks / maxClicks) * 100}%"></div>
+                       </div>
+                       <div class="w-12 text-right font-semibold text-white">${(link.clicks || 0).toLocaleString()}</div>
                    </div>
-                   <div class="w-12 text-right font-semibold text-white">${link.clicks.toLocaleString()}</div>
-               </div>
-            `).join('');
+                `).join('');
            
            return `
                <div class="animate-fade-in space-y-8">
                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                        <div class="bg-white/5 border border-white/10 rounded-xl p-6 flex items-center gap-4">
                            <div class="bg-indigo-500/20 p-3 rounded-lg text-indigo-400"><i data-lucide="eye"></i></div>
-                           <div><p class="text-sm text-gray-400">Total Views</p><p class="text-2xl font-bold text-white">${MOCK_ANALYTICS.views.toLocaleString()}</p></div>
+                           <div><p class="text-sm text-gray-400">Total Views</p><p class="text-2xl font-bold text-white">${views.toLocaleString()}</p></div>
                        </div>
                        <div class="bg-white/5 border border-white/10 rounded-xl p-6 flex items-center gap-4">
                            <div class="bg-indigo-500/20 p-3 rounded-lg text-indigo-400"><i data-lucide="bar-chart"></i></div>
@@ -310,10 +317,53 @@
                    </div>
                    <div class="bg-white/5 border border-white/10 rounded-xl p-6">
                        <h3 class="text-lg font-semibold text-white mb-4 font-poppins">Link Clicks Breakdown</h3>
-                       <div class="space-y-3">${barsHtml || '<p class="text-gray-400">No link data to display.</p>'}</div>
+                       <div class="space-y-3">${barsHtml || '<p class="text-gray-400">No links have been clicked yet.</p>'}</div>
                    </div>
                </div>
            `;
+        };
+
+        const renderSettingsEditor = () => {
+            return `
+                <div class="animate-fade-in space-y-8 max-w-2xl">
+                    <!-- Profile Information -->
+                    <div class="bg-white/5 border border-white/10 rounded-xl p-6">
+                        <h3 class="text-xl font-semibold text-white mb-4 font-poppins">Profile Information</h3>
+                        <form id="settings-form" class="space-y-4">
+                            <div>
+                                <label for="displayName" class="block text-sm font-medium text-gray-300 mb-1">Display Name</label>
+                                <input type="text" id="displayName" name="displayName" value="${state.profile.name}" required class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Username</label>
+                                <div class="flex items-center">
+                                    <span class="bg-white/5 border border-r-0 border-white/10 rounded-l-md px-3 py-2 text-gray-400">kardz.me/@</span>
+                                    <input type="text" id="username" name="username" value="${state.profile.username}" required class="w-full bg-white/5 border border-white/10 rounded-r-md px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                </div>
+                                <p id="username-feedback" class="text-sm mt-1 h-4"></p>
+                            </div>
+                            <div>
+                                <label for="bio" class="block text-sm font-medium text-gray-300 mb-1">Bio</label>
+                                <textarea id="bio" name="bio" rows="3" class="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">${state.profile.bio}</textarea>
+                            </div>
+                            <div class="flex justify-end items-center gap-4">
+                               <span id="save-feedback" class="text-sm text-green-400"></span>
+                                <button type="submit" data-action="save-settings" class="px-5 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-500 transition-colors flex items-center justify-center min-w-[120px]">
+                                    Save Changes
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    <!-- Danger Zone -->
+                    <div class="bg-red-900/20 border border-red-500/30 rounded-xl p-6">
+                        <h3 class="text-xl font-semibold text-red-300 mb-2 font-poppins">Danger Zone</h3>
+                        <p class="text-sm text-red-300/80 mb-4">Deleting your account is permanent. All of your data, including your profile and links, will be removed forever. This action cannot be undone.</p>
+                        <button data-action="delete-account" class="px-5 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-500 transition-colors">
+                            Delete My Account
+                        </button>
+                    </div>
+                </div>
+            `;
         };
 
         const renderLandingPage = () => {
@@ -376,8 +426,31 @@
                 }
                 
                 const profileData = profileSnap.val();
+
+                // --- Analytics Tracking ---
+                if (state.user?.uid !== uid) { // Don't track owner's views
+                    const currentViews = profileData.views || 0;
+                    await update(profileRef, { views: currentViews + 1 });
+                }
+                
                 root.innerHTML = `<div class="min-h-screen w-full flex items-center justify-center p-4">${renderPublicProfileCard(profileData)}</div>`;
                 lucide.createIcons();
+
+                // Add event listener for tracking link clicks
+                const mainContent = root.querySelector('main');
+                if (mainContent) {
+                    mainContent.addEventListener('click', async (e) => {
+                        const linkEl = e.target.closest('a[data-action="track-click"]');
+                        if (linkEl) {
+                            const linkId = linkEl.dataset.linkId;
+                            if (!linkId) return;
+                            const linkRef = ref(db, `profiles/${uid}/links/${linkId}/clicks`);
+                            const linkSnap = await get(linkRef);
+                            const currentClicks = linkSnap.val() || 0;
+                            await set(linkRef, currentClicks + 1);
+                        }
+                    });
+                }
             } catch (error) {
                  root.innerHTML = `
                     <div class="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
@@ -411,7 +484,6 @@
                 } else {
                     await createUserWithEmailAndPassword(auth, email, password);
                 }
-                // onAuthStateChanged will handle routing
             } catch (error) {
                 console.error("Auth Error:", error.code);
                 let message = "An unknown error occurred.";
@@ -426,6 +498,61 @@
                 }
                 setAuthError(message);
             }
+        };
+
+        const handleSettingsFormSubmit = async (e) => {
+            e.preventDefault();
+            const saveButton = e.target.querySelector('button[type="submit"]');
+            const feedbackEl = document.getElementById('save-feedback');
+            
+            saveButton.innerHTML = `<div class="w-5 h-5 border-2 rounded-full animate-spin spinner"></div>`;
+            saveButton.disabled = true;
+            feedbackEl.textContent = '';
+
+            const formData = new FormData(e.target);
+            const newName = formData.get('displayName').trim();
+            const newUsername = formData.get('username').trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
+            const newBio = formData.get('bio').trim();
+            
+            const updates = {};
+            let usernameChanged = newUsername !== state.profile.username;
+
+            if (usernameChanged) {
+                if (!newUsername) {
+                     feedbackEl.textContent = 'Username cannot be empty.';
+                     feedbackEl.className = 'text-sm text-red-400';
+                     saveButton.innerHTML = 'Save Changes';
+                     saveButton.disabled = false;
+                     return;
+                }
+                const usernameRef = ref(db, `usernames/${newUsername}`);
+                const snap = await get(usernameRef);
+                if (snap.exists()) {
+                    feedbackEl.textContent = 'Username is already taken.';
+                    feedbackEl.className = 'text-sm text-red-400';
+                    saveButton.innerHTML = 'Save Changes';
+                    saveButton.disabled = false;
+                    return;
+                }
+                await remove(ref(db, `usernames/${state.profile.username}`));
+                await set(ref(db, `usernames/${newUsername}`), state.user.uid);
+                updates.username = newUsername;
+            }
+
+            updates.name = newName;
+            updates.bio = newBio;
+            
+            await update(ref(db, `profiles/${state.user.uid}`), updates);
+            
+            feedbackEl.textContent = 'Changes saved!';
+            feedbackEl.className = 'text-sm text-green-400';
+
+            setTimeout(() => {
+                feedbackEl.textContent = '';
+                saveButton.innerHTML = 'Save Changes';
+                saveButton.disabled = false;
+                if(usernameChanged) window.location.hash = '/dashboard'; // Re-render dashboard to update URL
+            }, 2000);
         };
 
         const updateDashboardTab = (tabId) => {
@@ -463,7 +590,7 @@
                 });
                 button.classList.add('border-indigo-500', 'text-white');
                 button.classList.remove('border-transparent', 'text-gray-400');
-                const mode = button.dataset.authTab; // 'signin' or 'signup'
+                const mode = button.dataset.authTab;
                 const submitButton = document.getElementById('auth-submit-button');
                 submitButton.textContent = mode === 'signin' ? 'Sign In' : 'Create Account';
                 submitButton.dataset.mode = mode;
@@ -476,14 +603,30 @@
             
             switch(action) {
                 case 'add-link':
-                    const newLink = { id: Date.now().toString(), title: '', url: '', order: currentLinks.length };
+                    const newLink = { id: Date.now().toString(), title: '', url: '', order: currentLinks.length, clicks: 0 };
                     await update(profileRef, { [`links/${newLink.id}`]: newLink });
                     break;
                 case 'remove-link':
-                    await set(ref(db, `profiles/${state.user.uid}/links/${id}`), null);
+                    await remove(ref(db, `profiles/${state.user.uid}/links/${id}`));
                     break;
                 case 'select-theme':
                     await update(profileRef, { themeId: id });
+                    break;
+                case 'delete-account':
+                     if (window.confirm('Are you absolutely sure you want to delete your account? This action is irreversible.')) {
+                        try {
+                            const user = auth.currentUser;
+                            const username = state.profile.username;
+                            await remove(ref(db, `profiles/${user.uid}`));
+                            await remove(ref(db, `usernames/${username}`));
+                            await deleteUser(user);
+                            window.location.hash = '/';
+                            alert('Account deleted successfully.');
+                        } catch (error) {
+                            console.error("Failed to delete account:", error);
+                            alert("Failed to delete account. You may need to sign out and sign back in to complete this action.");
+                        }
+                    }
                     break;
             }
         });
@@ -492,6 +635,9 @@
              const input = e.target;
              const action = input.dataset.action;
              const id = input.dataset.id;
+             if (input.id === 'username') { // Sanitize username input
+                input.value = input.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+             }
              if (!action || !id || !state.user) return;
 
              if (action === 'update-link-title') {
@@ -501,14 +647,20 @@
                  await update(ref(db, `profiles/${state.user.uid}/links/${id}`), { url: input.value });
              }
         });
+        
+        let settingsFormHandled = false;
+        document.body.addEventListener('submit', (e) => {
+            if (e.target.id === 'auth-form') {
+                handleAuthFormSubmit(e);
+            }
+            if (e.target.id === 'settings-form') {
+                handleSettingsFormSubmit(e);
+            }
+        });
 
         // --- ROUTER ---
         const router = () => {
             const hash = window.location.hash || '#/';
-            const authForm = document.getElementById('auth-form');
-            if (authForm) {
-                 authForm.removeEventListener('submit', handleAuthFormSubmit);
-            }
             
             if (hash.startsWith('#/@')) {
                 const username = hash.substring(3);
@@ -522,7 +674,6 @@
                     window.location.hash = '/dashboard';
                 } else {
                     renderLandingPage();
-                    document.getElementById('auth-form').addEventListener('submit', handleAuthFormSubmit);
                 }
             }
         };
@@ -531,26 +682,32 @@
             let username = (user.displayName || user.email.split('@')[0])
                 .toLowerCase().replace(/[^a-z0-9]/g, '');
             
-            // Ensure username is unique
-            const usernameRef = ref(db, `usernames/${username}`);
-            const usernameSnap = await get(usernameRef);
-            if (usernameSnap.exists()) {
-                username = `${username}${Math.floor(Math.random() * 1000)}`;
+            let finalUsername = username;
+            let i = 0;
+            while (true) {
+                const usernameRef = ref(db, `usernames/${finalUsername}`);
+                const usernameSnap = await get(usernameRef);
+                if (!usernameSnap.exists()) {
+                    break;
+                }
+                i++;
+                finalUsername = `${username}${i}`;
             }
             
             const newProfile = {
                 uid: user.uid,
                 name: user.displayName || user.email.split('@')[0],
-                username: username,
+                username: finalUsername,
                 bio: 'Welcome to my Kard!',
                 photoURL: user.photoURL || `https://avatar.vercel.sh/${user.email}.svg`,
                 themeId: 'pulse',
                 accentColor: '#4f46e5',
                 links: {},
+                views: 0,
             };
             
             await set(ref(db, `profiles/${user.uid}`), newProfile);
-            await set(ref(db, `usernames/${username}`), user.uid);
+            await set(ref(db, `usernames/${finalUsername}`), user.uid);
             
             return newProfile;
         };
@@ -575,7 +732,7 @@
                             await createProfileForNewUser(user);
                             // The listener will fire again with the new data
                         }
-                    });
+                    }, { onlyOnce: false }); // Ensure it keeps listening
                 } else {
                     state.user = null;
                     state.profile = null;
