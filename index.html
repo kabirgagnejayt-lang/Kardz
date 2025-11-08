@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -760,6 +761,12 @@
             });
             
             window.addEventListener('hashchange', router);
+            // The router was previously only called inside onAuthStateChanged, which is
+            // asynchronous. This meant the initial page view wouldn't render until
+            // Firebase returned the auth state, causing the app to appear "stuck"
+            // on the loading spinner. Calling router() here ensures an immediate,
+            // synchronous render of the page in its default (logged-out) state.
+            router();
             document.body.style.opacity = 1;
         };
 
