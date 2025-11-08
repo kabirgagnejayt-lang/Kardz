@@ -648,7 +648,6 @@
              }
         });
         
-        let settingsFormHandled = false;
         document.body.addEventListener('submit', (e) => {
             if (e.target.id === 'auth-form') {
                 handleAuthFormSubmit(e);
@@ -668,9 +667,13 @@
             } else if (hash.startsWith('#/dashboard') && state.user) {
                 if (state.profile) {
                     renderDashboard();
+                } else {
+                    // This case should be rare with the new flow, but as a fallback:
+                    window.location.hash = '/'; 
                 }
             } else {
                 if (state.user) {
+                    // User is logged in but not on a specific page, redirect to dashboard.
                     window.location.hash = '/dashboard';
                 } else {
                     renderLandingPage();
@@ -684,6 +687,7 @@
             
             let finalUsername = username;
             let i = 0;
+            // Ensure username is unique
             while (true) {
                 const usernameRef = ref(db, `usernames/${finalUsername}`);
                 const usernameSnap = await get(usernameRef);
@@ -724,15 +728,30 @@
                     state.user = user;
                     const profileRef = ref(db, 'profiles/' + user.uid);
                     
-                    state.profileListener = onValue(profileRef, async (snapshot) => {
+                    // Use get() for a one-time fetch to robustly initialize the state
+                    const initialSnapshot = await get(profileRef);
+
+                    if (initialSnapshot.exists()) {
+                        state.profile = initialSnapshot.val();
+                    } else {
+                        // It's a new user, create their profile and wait for it to complete
+                        state.profile = await createProfileForNewUser(user);
+                    }
+                    
+                    // Now that the state is guaranteed to be populated, call the router
+                    router();
+
+                    // After initial setup, attach the persistent listener for live updates
+                    state.profileListener = onValue(profileRef, (snapshot) => {
                         if (snapshot.exists()) {
                             state.profile = snapshot.val();
-                            router(); // Re-route/re-render with fresh data
-                        } else {
-                            await createProfileForNewUser(user);
-                            // The listener will fire again with the new data
+                            // Re-render the dashboard if the user is currently viewing it
+                            if (window.location.hash.startsWith('#/dashboard')) {
+                                renderDashboard(); 
+                            }
                         }
-                    }, { onlyOnce: false }); // Ensure it keeps listening
+                    });
+
                 } else {
                     state.user = null;
                     state.profile = null;
